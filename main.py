@@ -42,7 +42,7 @@ if not st.session_state["authenticated"]:
 
 st.set_page_config(page_title="Dashboard Rute Distribusi", layout="wide")
 st.title("Dashboard Optimasi Rute Distribusi (MILP-Gurobi)")
-st.subheader("Sistem pendukung keputusan penjadwalan aramada harian => sistem informasi penentuan rute distribusi")
+st.subheader("Sistem Informasi Penentuan Rute Distribusi")
 
 with st.sidebar:
     st.markdown("### 👤 Karyawan Aktif")
