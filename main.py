@@ -49,6 +49,8 @@ with st.sidebar:
     st.success("🔑 Lisensi Gurobi WLS Aktif")
     if st.button("Log Out / Keluar"):
         st.session_state["authenticated"] = False
+        if "optimization_result" in st.session_state:
+            del st.session_state["optimization_result"]
         st.rerun()
 
 st.markdown("### Parameter Input Operasional")
@@ -139,7 +141,7 @@ st.dataframe(df_matrix)
 st.divider()
 
 coords = {
-    0: [-7.025, 107.525], 
+    0: [-7.025, 107.525], # Pabrik (Soreang)
     1: [-6.985, 107.632], 2: [-6.982, 107.638], 3: [-6.980, 107.640],
     4: [-6.992, 107.615], 5: [-6.995, 107.610], 6: [-6.990, 107.605],
     7: [-6.988, 107.620], 8: [-6.986, 107.625], 9: [-6.987, 107.622],
@@ -209,75 +211,91 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
             model.optimize()
             
             if model.status in [GRB.OPTIMAL, GRB.TIME_LIMIT]:
-                st.success("🎉 OPTIMASI SELESAI & BERHASIL DITEMUKAN!")
-                
-                total_waktu_menit_asli = round(model.ObjVal, 2)
-                jam = int(total_waktu_menit_asli // 60)
-                menit = int(total_waktu_menit_asli % 60)
-                
-                st.metric(label="Total Waktu Operasional Armada", value=f"{jam} Jam ({menit} Menit)")
-                
-                st.divider()
-                st.markdown("### 🗺️ Peta Interaktif Rute Distribusi Armada")
-                
-                m = folium.Map(location=[-7.0, 107.62], zoom_start=11, tiles="OpenStreetMap")
-                
-                folium.Marker(
-                    location=coords[0],
-                    popup="<b>Pabrik Utama</b>",
-                    tooltip="Pabrik Utama",
-                    icon=folium.Icon(color="red", icon="industry", prefix="fa")
-                ).add_to(m)
-                
-                for i in V:
-                    folium.Marker(
-                        location=coords[i],
-                        popup=f"<b>Retailer {i}</b><br>Demand: {current_demand[i]} Keranjang",
-                        tooltip=f"Retailer {i}",
-                        icon=folium.Icon(color="gray", icon="shopping-cart", prefix="fa")
-                    ).add_to(m)
-                
-                colors = {1: "green", 2: "blue"}
-                
-                for k in K:
-                    for i in V:
-                        if start[i, k].X > 0.5:
-                            line = folium.PolyLine(
-                                locations=[coords[0], coords[i]],
-                                color=colors[k],
-                                weight=4,
-                                opacity=0.8,
-                                dash_array='5, 10'
-                            ).add_to(m)
-                            plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
-                    
-                    for i in V:
-                        for j in V:
-                            if i != j:
-                                if x[i, j, k].X > 0.5 or x_refill[i, j, k].X > 0.5:
-                                    line = folium.PolyLine(
-                                        locations=[coords[i], coords[j]],
-                                        color=colors[k],
-                                        weight=4,
-                                        opacity=0.8,
-                                        dash_array='5, 10' if x_refill[i, j, k].X > 0.5 else None
-                                    ).add_to(m)
-                                    plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
-                    
-                    for i in V:
-                        if end[i, k].X > 0.5:
-                            line = folium.PolyLine(
-                                locations=[coords[i], coords[0]],
-                                color=colors[k],
-                                weight=4,
-                                opacity=0.8,
-                                dash_array='5, 10'
-                            ).add_to(m)
-                            plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
-
-                st_folium(m, width=1100, height=550)
-
+                st.session_state["optimization_result"] = {
+                    "obj_val": round(model.ObjVal, 2),
+                    "start": { (i, k): start[i, k].X for i in V for k in K },
+                    "end": { (i, k): end[i, k].X for i in V for k in K },
+                    "x": { (i, j, k): x[i, j, k].X for i in V for j in V if i != j for k in K },
+                    "x_refill": { (i, j, k): x_refill[i, j, k].X for i in V for j in V if i != j for k in K },
+                    "demand": current_demand
+                }
             else:
                 st.error("❌ Solusi Tidak Ditemukan (Infeasible).")
         except Exception as e:
             st.error(f"Gagal menjalankan kalkulasi: {str(e)}")
+
+if "optimization_result" in st.session_state:
+    res = st.session_state["optimization_result"]
+    
+    st.success("🎉 OPTIMASI SELESAI & BERHASIL DITEMUKAN!")
+    
+    total_waktu_menit_asli = res["obj_val"]
+    jam = int(total_waktu_menit_asli // 60)
+    menit = int(total_waktu_menit_asli % 60)
+    
+    st.metric(label="Total Waktu Operasional Armada", value=f"{jam} Jam ({menit} Menit)")
+    
+    st.divider()
+    st.markdown("### 🗺️ Peta Interaktif Rute Distribusi Armada")
+    
+    V = list(range(1, 21))
+    K = [1, 2]
+    
+    m = folium.Map(location=[-7.0, 107.62], zoom_start=11, tiles="OpenStreetMap")
+    
+    folium.Marker(
+        location=coords[0],
+        popup="<b>Pabrik Utama</b>",
+        tooltip="Pabrik Utama",
+        icon=folium.Icon(color="red", icon="industry", prefix="fa")
+    ).add_to(m)
+    
+    for i in V:
+        folium.Marker(
+            location=coords[i],
+            popup=f"<b>Retailer {i}</b><br>Demand: {res['demand'][i]} Keranjang",
+            tooltip=f"Retailer {i}",
+            icon=folium.Icon(color="gray", icon="shopping-cart", prefix="fa")
+        ).add_to(m)
+    
+    colors = {1: "green", 2: "blue"}
+    
+    for k in K:
+        for i in V:
+            if res["start"][(i, k)] > 0.5:
+                line = folium.PolyLine(
+                    locations=[coords[0], coords[i]],
+                    color=colors[k],
+                    weight=4,
+                    opacity=0.8,
+                    dash_array='5, 10'
+                ).add_to(m)
+                plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
+        
+        for i in V:
+            for j in V:
+                if i != j:
+                    x_val = res["x"].get((i, j, k), 0)
+                    xr_val = res["x_refill"].get((i, j, k), 0)
+                    if x_val > 0.5 or xr_val > 0.5:
+                        line = folium.PolyLine(
+                            locations=[coords[i], coords[j]],
+                            color=colors[k],
+                            weight=4,
+                            opacity=0.8,
+                            dash_array='5, 10' if xr_val > 0.5 else None
+                        ).add_to(m)
+                        plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
+        
+        for i in V:
+            if res["end"][(i, k)] > 0.5:
+                line = folium.PolyLine(
+                    locations=[coords[i], coords[0]],
+                    color=colors[k],
+                    weight=4,
+                    opacity=0.8,
+                    dash_array='5, 10'
+                ).add_to(m)
+                plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
+
+    st_folium(m, width=1100, height=550)
