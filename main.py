@@ -158,6 +158,7 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
     V = list(range(1, 21))
     K = [1, 2]
     Q = {1: cap_mobil1, 2: cap_mobil2}
+    M = M_big  # Menggunakan nilai Big M
     
     current_demand = {i: int(demand_converted[i-1]) for i in V}
     
@@ -185,6 +186,7 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
             start = model.addVars(V, K, vtype=GRB.BINARY, name="start")
             end = model.addVars(V, K, vtype=GRB.BINARY, name="end")
             W = model.addVars(V, K, vtype=GRB.CONTINUOUS, lb=0, name="W")
+            Y = model.addVars(V, K, vtype=GRB.CONTINUOUS, lb=0, name="Y") # Penambahan Variabel Sisa Kapasitas Y
             
             model.setObjective(
                 gp.quicksum((t_input[i, j] + t_retailer) * x[i, j, k] for i in V for j in V if i != j for k in K) +
@@ -196,20 +198,15 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
             
             model.addConstrs(gp.quicksum(x[i, j, k] + x_refill[i, j, k] for i in V if i != j for k in K) + gp.quicksum(start[j, k] for k in K) == 1 for j in V)
             model.addConstrs(gp.quicksum(x[i, j, k] + x_refill[i, j, k] for i in V if i != j) + start[j, k] == gp.quicksum(x[j, i, k] + x_refill[j, i, k] for i in V if i != j) + end[j, k] for j in V for k in K)
-            
             model.addConstrs(gp.quicksum(start[i, k] for i in V) <= 1 for k in K)
             model.addConstrs(gp.quicksum(end[i, k] for i in V) <= 1 for k in K)
-            
-            model.addConstrs(W[i, k] >= t_pabrik + t_input[0, i] - M_big * (1 - start[i, k]) for i in V for k in K)
-            
-            model.addConstrs(
-                W[j, k] >= W[i, k] + t_retailer + t_input[i, j] * x[i, j, k] + 
-                (t_input[i, 0] + t_pabrik + t_input[0, j]) * x_refill[i, j, k] - 
-                M_big * (1 - x[i, j, k] - x_refill[i, j, k]) 
-                for i in V for j in V if i != j for k in K
-            )
-            
-            model.addConstrs(W[i, k] + t_retailer + t_input[i, 0] <= T_max + M_big * (1 - end[i, k]) for i in V for k in K)
+
+            model.addConstrs(Y[i, k] <= Q[k] - current_demand[i] + M * (1 - start[i, k]) for i in V for k in K)
+            model.addConstrs(Y[j, k] <= Q[k] - current_demand[j] + M * (1 - x[i, j, k] - x_refill[i, j, k]) for i in V for j in V if i != j for k in K)
+
+            model.addConstrs(W[i, k] >= t_pabrik + t_input[0, i] - M * (1 - start[i, k]) for i in V for k in K)
+            model.addConstrs(W[j, k] >= W[i, k] + t_retailer + t_input[i, j]*x[i, j, k] + (t_input[i, 0] + t_pabrik + t_input[0, j])*x_refill[i, j, k] - M * (1 - x[i, j, k] - x_refill[i, j, k]) for i in V for j in V if i != j for k in K)
+            model.addConstrs(W[i, k] + t_retailer + t_input[i, 0] <= T_max + M * (1 - end[i, k]) for i in V for k in K)
             
             model.optimize()
             
@@ -392,7 +389,7 @@ if "optimization_result" in st.session_state:
     )
 
     st.divider()
-    st.markdown("### 🗺️ Peta Interaktif Geografis (Folium)")
+    st.markdown("### 🗺️ Peta Interaktif Geografis")
     
     m = folium.Map(location=[-7.0, 107.62], zoom_start=11, tiles="OpenStreetMap")
     
