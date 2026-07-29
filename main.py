@@ -1,8 +1,11 @@
+import io
 import streamlit as st
 import pandas as pd
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import folium
 from folium import plugins
 from streamlit_folium import st_folium
@@ -217,7 +220,8 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
                     "end": { (i, k): end[i, k].X for i in V for k in K },
                     "x": { (i, j, k): x[i, j, k].X for i in V for j in V if i != j for k in K },
                     "x_refill": { (i, j, k): x_refill[i, j, k].X for i in V for j in V if i != j for k in K },
-                    "demand": current_demand
+                    "demand": current_demand,
+                    "Q": Q
                 }
             else:
                 st.error("❌ Solusi Tidak Ditemukan (Infeasible).")
@@ -226,6 +230,9 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
 
 if "optimization_result" in st.session_state:
     res = st.session_state["optimization_result"]
+    V = list(range(1, 21))
+    K = [1, 2]
+    Q = res["Q"]
     
     st.success("🎉 OPTIMASI SELESAI & BERHASIL DITEMUKAN!")
     
@@ -235,11 +242,139 @@ if "optimization_result" in st.session_state:
     
     st.metric(label="Total Waktu Operasional Armada", value=f"{jam} Jam ({menit} Menit)")
     
-    st.divider()
-    st.markdown("### 🗺️ Peta Interaktif Rute Distribusi Armada")
+    routes_data = {}
+
+    for k in K:
+        start_node = next((i for i in V if res["start"][(i, k)] > 0.5), None)
+        if start_node is not None:
+            nodes_sequence = [0, start_node]
+            route_text = f"Pabrik ➡️ R-{start_node}"
+            curr = start_node
+            while True:
+                nxt_direct = next((j for j in V if curr != j and res["x"].get((curr, j, k), 0) > 0.5), None)
+                nxt_refill = next((j for j in V if curr != j and res["x_refill"].get((curr, j, k), 0) > 0.5), None)
+                
+                if nxt_direct is not None:
+                    route_text += f" ➡️ R-{nxt_direct}"
+                    nodes_sequence.append(nxt_direct)
+                    curr = nxt_direct
+                elif nxt_refill is not None:
+                    route_text += f" 🔄 [REFILL] ➡️ Pabrik ➡️ R-{nxt_refill}"
+                    nodes_sequence.extend([0, nxt_refill])
+                    curr = nxt_refill
+                else:
+                    nodes_sequence.append(0)
+                    break
+            route_text += " ➡️ Pabrik (Selesai) 🏁"
+            st.info(f"**Rute Kendaraan {k} (Kapasitas {Q[k]} Keranjang):**  \n{route_text}")
+            routes_data[k] = nodes_sequence
+        else:
+            st.warning(f"**Kendaraan {k}:** Tidak digunakan.")
+            routes_data[k] = []
     
-    V = list(range(1, 21))
-    K = [1, 2]
+    st.markdown("### Peta Jalur Distribusi (Diagram Alur Grid)")
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12), facecolor='white')
+    axes = {1: ax1, 2: ax2}
+    
+    for k in K:
+        ax = axes[k]
+        seq = routes_data[k]
+        
+        if len(seq) > 2:
+            visit_labels = []
+            for idx, node in enumerate(seq):
+                if node == 0:
+                    if idx == 0:
+                        visit_labels.append("🏢 PABRIK")
+                    elif idx == len(seq) - 1:
+                        visit_labels.append("🏁 FINISH\n(PABRIK)")
+                    else:
+                        visit_labels.append("🔄 REFILL\n(PABRIK)")
+                else:
+                    visit_labels.append(f"Toko R{node}\n(Urutan-{idx})")
+            
+            max_cols = 5
+            coords_grid = []
+            current_row = 0
+            
+            for idx in range(len(visit_labels)):
+                col = idx % max_cols
+                if current_row % 2 == 1:
+                    col = (max_cols - 1) - col
+                
+                x_pos = col * 3.5
+                y_pos = current_row * -2.5
+                coords_grid.append((x_pos, y_pos))
+                
+                if (idx + 1) % max_cols == 0:
+                    current_row += 1
+            
+            for i, label in enumerate(visit_labels):
+                x_curr, y_curr = coords_grid[i]
+                
+                if "PABRIK" in label:
+                    f_color = "#343A40"
+                    t_color = "white"
+                elif "REFILL" in label:
+                    f_color = "#FFC107"
+                    t_color = "black"
+                else:
+                    f_color = "#E1F5FE"
+                    t_color = "black"
+                    
+                ax.text(x_curr, y_curr, f" {label} ", fontsize=9, fontweight='bold', color=t_color,
+                        bbox=dict(boxstyle="round,pad=0.8", facecolor=f_color, edgecolor="black", lw=1.5),
+                        ha="center", va="center", zorder=4)
+            
+            for i in range(len(visit_labels) - 1):
+                x_start, y_start = coords_grid[i]
+                x_end, y_end = coords_grid[i+1]
+                
+                if y_start != y_end:
+                    arrow = patches.FancyArrowPatch(
+                        (x_start, y_start - 0.5), (x_end, y_end + 0.5),
+                        arrowstyle="-|>", connectionstyle="angle,angleA=90,angleB=0,rad=10",
+                        mutation_scale=15, linewidth=2.5, color="#1A237E"
+                    )
+                else:
+                    arrow = patches.FancyArrowPatch(
+                        (x_start, y_start), (x_end, y_end),
+                        arrowstyle="-|>", connectionstyle="arc3,rad=0",
+                        mutation_scale=15, linewidth=2.5, color="#1A237E",
+                        shrinkA=35, shrinkB=35
+                    )
+                ax.add_patch(arrow)
+            
+            all_x = [c[0] for c in coords_grid]
+            all_y = [c[1] for c in coords_grid]
+            ax.set_xlim(min(all_x) - 2, max(all_x) + 2)
+            ax.set_ylim(min(all_y) - 1.5, max(all_y) + 1.5)
+            ax.set_title(f"🚚 ALUR DIAGRAM DISTRIBUSI KENDARAAN {k}\n(Kapasitas: {Q[k]} Keranjang)", fontsize=13, fontweight='bold', pad=15)
+        else:
+            ax.text(5, -2, "KENDARAAN TIDAK BEROPERASI (NON-AKTIF)", fontsize=12, color='gray', ha='center', fontweight='bold')
+            ax.set_title(f"🚚 KENDARAAN {k} (Non-Aktif)", fontsize=13, fontweight='bold', pad=15)
+            ax.set_xlim(0, 10)
+            ax.set_ylim(-5, 0)
+            
+        ax.axis('off')
+    
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", bbox_inches='tight', dpi=300)
+    buf.seek(0)
+    
+    st.download_button(
+        label="📥 Download Gambar Hasil Pemetaan Rute (PNG)",
+        data=buf,
+        file_name="bagan_rute_distribusi_grid.png",
+        mime="image/png"
+    )
+
+    st.divider()
+    st.markdown("### 🗺️ Peta Interaktif Geografis (Folium)")
     
     m = folium.Map(location=[-7.0, 107.62], zoom_start=11, tiles="OpenStreetMap")
     
