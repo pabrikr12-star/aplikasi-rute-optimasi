@@ -62,9 +62,9 @@ col1, col2, col3 = st.columns(3)
 with col1:
     with st.container(border=True):
         st.markdown("#### ⏱️ Waktu Proses (Menit)")
-        t_pabrik = st.number_input("Waktu Muat di Pabrik (t_pabrik)", min_value=0, value=10)
-        t_retailer = st.number_input("Waktu Bongkar di Toko (t_retailer)", min_value=0, value=10)
-        T_max = st.number_input("Batas Kerja Maksimal (T_max)", min_value=60, value=450)
+        t_pabrik = st.number_input("Waktu Muat di Pabrik, min_value=0, value=10)
+        t_retailer = st.number_input("Waktu Bongkar di Toko, min_value=0, value=10)
+        T_max = st.number_input("Batas Kerja Maksimal, min_value=60, value=450)
 
 with col2:
     with st.container(border=True):
@@ -144,7 +144,7 @@ st.dataframe(df_matrix)
 st.divider()
 
 coords = {
-    0: [-7.025, 107.525], # Pabrik (Soreang)
+    0: [-7.025, 107.525],
     1: [-6.985, 107.632], 2: [-6.982, 107.638], 3: [-6.980, 107.640],
     4: [-6.992, 107.615], 5: [-6.995, 107.610], 6: [-6.990, 107.605],
     7: [-6.988, 107.620], 8: [-6.986, 107.625], 9: [-6.987, 107.622],
@@ -249,30 +249,29 @@ if "optimization_result" in st.session_state:
         if start_node is not None:
             nodes_sequence = [0, start_node]
             curr = start_node
+            visited = set([curr])
             
-            while True:
-                nxt_node = None
-                is_refill = False
+            for _ in range(len(V) + 5):
+                found_next = False
                 
                 for j in V:
-                    if curr != j and res["x"].get((curr, j, k), 0) > 0.5:
-                        nxt_node = j
+                    if j not in visited and res["x"].get((curr, j, k), 0) > 0.5:
+                        nodes_sequence.append(j)
+                        visited.add(j)
+                        curr = j
+                        found_next = True
                         break
                 
-                if nxt_node is None:
+                if not found_next:
                     for j in V:
-                        if curr != j and res["x_refill"].get((curr, j, k), 0) > 0.5:
-                            nxt_node = j
-                            is_refill = True
+                        if j not in visited and res["x_refill"].get((curr, j, k), 0) > 0.5:
+                            nodes_sequence.extend([0, j])
+                            visited.add(j)
+                            curr = j
+                            found_next = True
                             break
                 
-                if nxt_node is not None:
-                    if is_refill:
-                        nodes_sequence.extend([0, nxt_node])
-                    else:
-                        nodes_sequence.append(nxt_node)
-                    curr = nxt_node
-                else:
+                if not found_next:
                     if res["end"].get((curr, k), 0) > 0.5:
                         nodes_sequence.append(0)
                     break
@@ -296,7 +295,7 @@ if "optimization_result" in st.session_state:
             st.warning(f"**Kendaraan {k}:** Tidak digunakan.")
             routes_data[k] = []
     
-    st.markdown("### Peta Jalur Distribusi (Diagram Alur Grid)")
+    st.markdown("### Peta Jalur Distribusi")
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12), facecolor='white')
     axes = {1: ax1, 2: ax2}
@@ -398,7 +397,7 @@ if "optimization_result" in st.session_state:
     )
 
     st.divider()
-    st.markdown("### 🗺️ Peta Interaktif Geografis (Folium)")
+    st.markdown("### 🗺️ Peta Interaktif Geografis")
     
     m = folium.Map(location=[-7.0, 107.62], zoom_start=11, tiles="OpenStreetMap")
     
@@ -420,41 +419,18 @@ if "optimization_result" in st.session_state:
     colors = {1: "green", 2: "blue"}
     
     for k in K:
-        for i in V:
-            if res["start"][(i, k)] > 0.5:
-                line = folium.PolyLine(
-                    locations=[coords[0], coords[i]],
-                    color=colors[k],
-                    weight=4,
-                    opacity=0.8,
-                    dash_array='5, 10'
-                ).add_to(m)
-                plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
-        
-        for i in V:
-            for j in V:
-                if i != j:
-                    x_val = res["x"].get((i, j, k), 0)
-                    xr_val = res["x_refill"].get((i, j, k), 0)
-                    if x_val > 0.5 or xr_val > 0.5:
-                        line = folium.PolyLine(
-                            locations=[coords[i], coords[j]],
-                            color=colors[k],
-                            weight=4,
-                            opacity=0.8,
-                            dash_array='5, 10' if xr_val > 0.5 else None
-                        ).add_to(m)
-                        plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
-        
-        for i in V:
-            if res["end"][(i, k)] > 0.5:
-                line = folium.PolyLine(
-                    locations=[coords[i], coords[0]],
-                    color=colors[k],
-                    weight=4,
-                    opacity=0.8,
-                    dash_array='5, 10'
-                ).add_to(m)
-                plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
+        seq = routes_data.get(k, [])
+        for idx in range(len(seq) - 1):
+            n1 = seq[idx]
+            n2 = seq[idx+1]
+            
+            line = folium.PolyLine(
+                locations=[coords[n1], coords[n2]],
+                color=colors[k],
+                weight=4,
+                opacity=0.8,
+                dash_array='5, 10' if n1 == 0 or n2 == 0 else None
+            ).add_to(m)
+            plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
 
     st_folium(m, width=1100, height=550)
