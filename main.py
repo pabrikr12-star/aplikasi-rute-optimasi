@@ -62,9 +62,9 @@ col1, col2, col3 = st.columns(3)
 with col1:
     with st.container(border=True):
         st.markdown("#### ⏱️ Waktu Proses (Menit)")
-        t_pabrik = st.number_input("Waktu Muat di Pabrik, min_value=0, value=10)
-        t_retailer = st.number_input("Waktu Bongkar di Toko, min_value=0, value=10)
-        T_max = st.number_input("Batas Kerja Maksimal, min_value=60, value=450)
+        t_pabrik = st.number_input("Waktu Muat di Pabrik (t_pabrik)", min_value=0, value=10)
+        t_retailer = st.number_input("Waktu Bongkar di Toko (t_retailer)", min_value=0, value=10)
+        T_max = st.number_input("Batas Kerja Maksimal (T_max)", min_value=60, value=450)
 
 with col2:
     with st.container(border=True):
