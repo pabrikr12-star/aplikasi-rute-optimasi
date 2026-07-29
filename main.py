@@ -69,7 +69,7 @@ with col1:
 with col2:
     with st.container(border=True):
         st.markdown("#### 📦 Kapasitas Armada (Keranjang)")
-        cap_mobil1 = st.number_input("Kapasitas Kendaraan 1", min_value=1, value=20)
+        cap_mobil1 = st.number_input("Kapasitas Kendaraan 1", min_value=1, value=25)
         cap_mobil2 = st.number_input("Kapasitas Kendaraan 2", min_value=1, value=25)
 
 with col3:
@@ -248,24 +248,48 @@ if "optimization_result" in st.session_state:
         start_node = next((i for i in V if res["start"][(i, k)] > 0.5), None)
         if start_node is not None:
             nodes_sequence = [0, start_node]
-            route_text = f"Pabrik ➡️ R-{start_node}"
             curr = start_node
+            
             while True:
-                nxt_direct = next((j for j in V if curr != j and res["x"].get((curr, j, k), 0) > 0.5), None)
-                nxt_refill = next((j for j in V if curr != j and res["x_refill"].get((curr, j, k), 0) > 0.5), None)
+                nxt_node = None
+                is_refill = False
                 
-                if nxt_direct is not None:
-                    route_text += f" ➡️ R-{nxt_direct}"
-                    nodes_sequence.append(nxt_direct)
-                    curr = nxt_direct
-                elif nxt_refill is not None:
-                    route_text += f" 🔄 [REFILL] ➡️ Pabrik ➡️ R-{nxt_refill}"
-                    nodes_sequence.extend([0, nxt_refill])
-                    curr = nxt_refill
+                for j in V:
+                    if curr != j and res["x"].get((curr, j, k), 0) > 0.5:
+                        nxt_node = j
+                        break
+                
+                if nxt_node is None:
+                    for j in V:
+                        if curr != j and res["x_refill"].get((curr, j, k), 0) > 0.5:
+                            nxt_node = j
+                            is_refill = True
+                            break
+                
+                if nxt_node is not None:
+                    if is_refill:
+                        nodes_sequence.extend([0, nxt_node])
+                    else:
+                        nodes_sequence.append(nxt_node)
+                    curr = nxt_node
                 else:
-                    nodes_sequence.append(0)
+                    if res["end"].get((curr, k), 0) > 0.5:
+                        nodes_sequence.append(0)
                     break
-            route_text += " ➡️ Pabrik (Selesai) 🏁"
+            
+            route_str_list = []
+            for idx, n in enumerate(nodes_sequence):
+                if n == 0:
+                    if idx == 0:
+                        route_str_list.append("Pabrik")
+                    elif idx == len(nodes_sequence) - 1:
+                        route_str_list.append("Pabrik (Selesai) 🏁")
+                    else:
+                        route_str_list.append("🔄 [REFILL] ➡️ Pabrik")
+                else:
+                    route_str_list.append(f"R-{n}")
+            
+            route_text = " ➡️ ".join(route_str_list)
             st.info(f"**Rute Kendaraan {k} (Kapasitas {Q[k]} Keranjang):**  \n{route_text}")
             routes_data[k] = nodes_sequence
         else:
