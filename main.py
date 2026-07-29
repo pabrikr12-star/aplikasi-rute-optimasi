@@ -1,16 +1,17 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import io
 import gurobipy as gp
 from gurobipy import GRB
+import folium
+from folium import plugins
+from streamlit_folium import st_folium
+
+st.set_page_config(page_title="Dashboard Rute Distribusi", layout="wide")
 
 st.markdown(
     """
     <style>
-    /* Mengambil font Switzer langsung dari CDN resmi web font */
     @import url('https://api.fontshare.com/v2/css?f[]=switzer@300,400,500,600,700&display=swap');
     
     html, body, [class*="css"], .stText, .stMarkdown, p, h1, h2, h3, h4, h5, h6, button, input, label {
@@ -25,7 +26,6 @@ if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 if not st.session_state["authenticated"]:
-    st.set_page_config(page_title="Login Sisfo Rute", page_icon="🔐", layout="centered")
     st.title("🔐 Sistem Informasi Optimasi Rute Pabrik")
     st.write("Silakan masukkan akun operasional pabrik:")
     
@@ -40,7 +40,6 @@ if not st.session_state["authenticated"]:
             st.error("Username atau Password salah! Hubungi Admin Sistem.")
     st.stop()
 
-st.set_page_config(page_title="Dashboard Rute Distribusi", layout="wide")
 st.title("Dashboard Optimasi Rute Distribusi (MILP-Gurobi)")
 st.subheader("Sistem Informasi Penentuan Rute Distribusi")
 
@@ -97,25 +96,58 @@ st.write(f"Total Muatan Hari Ini: **{total_demand} keranjang** | Total Kapasitas
 
 st.divider()
 
-st.markdown("### 🗺️ Matriks Waktu Perjalanan Antar Lokasi (Menit)")
-st.write("Baris/Kolom 0 = Pabrik, Baris/Kolom 1-20 = Retailer 1-20. Ubah sel jika waktu jalan berubah:")
+fixed_retailer_matrix = [
+    [999999, 1, 1, 19, 29, 22, 29, 30, 27, 30, 28, 26, 2, 29, 27, 104, 105, 105, 106, 103],
+    [1, 999999, 1, 19, 29, 23, 29, 30, 27, 30, 29, 27, 3, 29, 28, 90, 91, 91, 92, 89],
+    [1, 1, 999999, 19, 28, 22, 29, 29, 27, 30, 28, 26, 3, 29, 27, 90, 91, 90, 91, 89],
+    [19, 19, 19, 999999, 9, 5, 9, 10, 7, 11, 47, 46, 22, 48, 47, 59, 60, 60, 61, 58],
+    [29, 29, 28, 9, 999999, 7, 8, 6, 6, 4, 57, 55, 31, 58, 56, 52, 53, 53, 53, 51],
+    [22, 23, 22, 5, 7, 999999, 7, 8, 5, 8, 51, 49, 25, 51, 50, 57, 58, 57, 58, 55],
+    [29, 29, 29, 9, 7, 7, 999999, 2, 3, 3, 57, 55, 32, 55, 57, 51, 53, 52, 53, 50],
+    [30, 30, 30, 10, 5, 8, 3, 999999, 5, 1, 58, 56, 33, 59, 57, 49, 50, 49, 50, 47],
+    [27, 27, 27, 7, 6, 5, 3, 5, 999999, 5, 55, 53, 30, 56, 54, 54, 55, 54, 55, 52],
+    [30, 31, 30, 11, 4, 8, 3, 1, 5, 999999, 59, 57, 33, 59, 58, 49, 51, 50, 51, 48],
+    [28, 29, 28, 47, 57, 51, 57, 58, 55, 59, 999999, 2, 25, 5, 4, 130, 131, 131, 132, 129],
+    [26, 27, 26, 45, 55, 49, 55, 56, 53, 57, 2, 999999, 23, 3, 1, 128, 129, 129, 130, 127],
+    [2, 3, 3, 22, 31, 25, 32, 32, 30, 33, 25, 23, 999999, 26, 24, 105, 106, 105, 106, 104],
+    [28, 29, 29, 48, 58, 51, 55, 59, 56, 59, 5, 3, 26, 999999, 1, 131, 132, 121, 132, 130],
+    [27, 28, 27, 47, 56, 50, 57, 57, 54, 58, 4, 1, 24, 1, 999999, 129, 130, 130, 131, 128],
+    [86, 87, 86, 58, 51, 56, 51, 48, 53, 49, 115, 113, 89, 115, 114, 999999, 1, 1, 3, 1],
+    [88, 88, 87, 59, 52, 57, 52, 49, 54, 50, 116, 114, 90, 117, 115, 1, 999999, 1, 4, 1],
+    [88, 88, 87, 60, 52, 57, 52, 50, 54, 50, 116, 114, 90, 117, 115, 1, 1, 999999, 4, 1],
+    [89, 89, 88, 61, 53, 58, 53, 51, 55, 51, 117, 115, 91, 118, 116, 3, 4, 4, 999999, 3],
+    [86, 86, 85, 58, 51, 55, 50, 48, 52, 48, 114, 112, 88, 115, 113, 1, 1, 1, 3, 999999]
+]
 
-default_matrix = []
+full_matrix = []
 for i in range(21):
     row = []
     for j in range(21):
-        if i == j:
-            row.append(999999.0 if i > 0 else 0.0)
+        if i == 0 or j == 0:
+            row.append(0.0)
         else:
-            row.append(15.0)
-    default_matrix.append(row)
+            row.append(float(fixed_retailer_matrix[i-1][j-1]))
+    full_matrix.append(row)
 
-df_matrix = pd.DataFrame(default_matrix, 
+st.markdown("### 🗺️ Matriks Waktu Perjalanan Antar Lokasi (Menit)")
+st.caption("🔒 Matriks waktu antar Retailer telah ditetapkan secara permanen (Pabrik / L0 = 0 Menit).")
+df_matrix = pd.DataFrame(full_matrix, 
                          columns=[f"L{i}" for i in range(21)], 
                          index=[f"L{i}" for i in range(21)])
-edited_matrix = st.data_editor(df_matrix)
+st.dataframe(df_matrix)
 
 st.divider()
+
+coords = {
+    0: [-7.025, 107.525], 
+    1: [-6.985, 107.632], 2: [-6.982, 107.638], 3: [-6.980, 107.640],
+    4: [-6.992, 107.615], 5: [-6.995, 107.610], 6: [-6.990, 107.605],
+    7: [-6.988, 107.620], 8: [-6.986, 107.625], 9: [-6.987, 107.622],
+    10: [-6.989, 107.628], 11: [-6.975, 107.645], 12: [-6.978, 107.648],
+    13: [-6.983, 107.635], 14: [-6.976, 107.642], 15: [-6.974, 107.646],
+    16: [-7.085, 107.670], 17: [-7.088, 107.675], 18: [-7.090, 107.672],
+    19: [-7.092, 107.678], 20: [-7.086, 107.680]
+}
 
 if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
     V = list(range(1, 21))
@@ -125,10 +157,9 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
     current_demand = {i: int(demand_converted[i-1]) for i in V}
     
     t_input = {}
-    matrix_values = edited_matrix.values.tolist()
     for i in range(21):
         for j in range(21):
-            t_input[i, j] = float(matrix_values[i][j])
+            t_input[i, j] = float(full_matrix[i][j])
             
     with st.spinner("Sedang menjalankan kalkulasi Gurobi..."):
         try:
@@ -164,11 +195,13 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
             )
             
             model.addConstrs(gp.quicksum(x[i, j, k] + x_refill[i, j, k] for i in V if i != j for k in K) + gp.quicksum(start[j, k] for k in K) == 1 for j in V)
-            model.addConstrs(gp.quicksum(x[i, j, k] + x_refill[i, j, k] for i in V if i != j) + start[j, k] == gp.quicksum(x[j, l, k] + x_refill[j, l, k] for l in V if j != l) + end[j, k] for j in V for k in K)
+            model.addConstrs(gp.quicksum(x[i, j, k] + x_refill[i, j, k] for i in V if i != j) + start[j, k] == gp.quicksum(x[j, i, k] + x_refill[j, i, k] for i in V if i != j) + end[j, k] for j in V for k in K)
             model.addConstrs(gp.quicksum(start[i, k] for i in V) <= 1 for k in K)
             model.addConstrs(gp.quicksum(end[i, k] for i in V) <= 1 for k in K)
+            
             model.addConstrs(Y[i, k] <= Q[k] - current_demand[i] + M_big * (1 - start[i, k]) for i in V for k in K)
-            model.addConstrs(Y[j, k] <= Y[i, k] - current_demand[j] + M_big * (1 - x[i, j, k]) for i in V for j in V if i != j for k in K)
+            model.addConstrs(Y[j, k] <= Q[k] - current_demand[j] + M_big * (1 - x[i, j, k] - x_refill[i, j, k]) for i in V for j in V if i != j for k in K)
+            
             model.addConstrs(W[i, k] >= t_pabrik + t_input[0, i] - M_big * (1 - start[i, k]) for i in V for k in K)
             model.addConstrs(W[j, k] >= W[i, k] + t_retailer + t_input[i, j] * x[i, j, k] + (t_input[i, 0] + t_pabrik + t_input[0, j]) * x_refill[i, j, k] - M_big * (2 - x[i, j, k] - x_refill[i, j, k]) for i in V for j in V if i != j for k in K)
             model.addConstrs(W[i, k] + t_retailer + t_input[i, 0] <= T_max + M_big * (1 - end[i, k]) for i in V for k in K)
@@ -179,142 +212,71 @@ if st.button("🚀 PROSES OPTIMALISASI RUTE PABRIK", type="primary"):
                 st.success("🎉 OPTIMASI SELESAI & BERHASIL DITEMUKAN!")
                 
                 total_waktu_menit_asli = round(model.ObjVal, 2)
-                
                 jam = int(total_waktu_menit_asli // 60)
                 menit = int(total_waktu_menit_asli % 60)
                 
                 st.metric(label="Total Waktu Operasional Armada", value=f"{jam} Jam ({menit} Menit)")
                 
-                routes_data = {}
-            
-                for k in K:
-                    start_node = next((i for i in V if start[i, k].x > 0.5), None)
-                    if start_node is not None:
-                        nodes_sequence = [0, start_node]
-                        route_text = f"Pabrik ➡️ R-{start_node}"
-                        curr = start_node
-                        while True:
-                            nxt_direct = next((j for j in V if curr != j and (curr, j, k) in x and x[curr, j, k].x > 0.5), None)
-                            nxt_refill = next((j for j in V if curr != j and (curr, j, k) in x_refill and x_refill[curr, j, k].x > 0.5), None)
-                            
-                            if nxt_direct is not None:
-                                route_text += f" ➡️ R-{nxt_direct}"
-                                nodes_sequence.append(nxt_direct)
-                                curr = nxt_direct
-                            elif nxt_refill is not None:
-                                route_text += f" 🔄 [REFILL] ➡️ Pabrik ➡️ R-{nxt_refill}"
-                                nodes_sequence.extend([0, nxt_refill])
-                                curr = nxt_refill
-                            else:
-                                nodes_sequence.append(0)
-                                break
-                        route_text += " ➡️ Pabrik (Selesai) 🏁"
-                        st.info(f"**Rute Kendaraan {k} (Kapasitas {Q[k]} Keranjang):**  \n{route_text}")
-                        routes_data[k] = nodes_sequence
-                    else:
-                        st.warning(f"**Kendaraan {k}:** Tidak digunakan.")
-                        routes_data[k] = []
+                st.divider()
+                st.markdown("### 🗺️ Peta Interaktif Rute Distribusi Armada")
                 
-                st.markdown("### Peta Jalur Distribusi")
+                m = folium.Map(location=[-7.0, 107.62], zoom_start=11, tiles="OpenStreetMap")
                 
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12), facecolor='white')
-                axes = {1: ax1, 2: ax2}
+                folium.Marker(
+                    location=coords[0],
+                    popup="<b>Pabrik Utama</b>",
+                    tooltip="Pabrik Utama",
+                    icon=folium.Icon(color="red", icon="industry", prefix="fa")
+                ).add_to(m)
+                
+                for i in V:
+                    folium.Marker(
+                        location=coords[i],
+                        popup=f"<b>Retailer {i}</b><br>Demand: {current_demand[i]} Keranjang",
+                        tooltip=f"Retailer {i}",
+                        icon=folium.Icon(color="gray", icon="shopping-cart", prefix="fa")
+                    ).add_to(m)
+                
+                colors = {1: "green", 2: "blue"}
                 
                 for k in K:
-                    ax = axes[k]
-                    seq = routes_data[k]
+                    for i in V:
+                        if start[i, k].X > 0.5:
+                            line = folium.PolyLine(
+                                locations=[coords[0], coords[i]],
+                                color=colors[k],
+                                weight=4,
+                                opacity=0.8,
+                                dash_array='5, 10'
+                            ).add_to(m)
+                            plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
                     
-                    if len(seq) > 2:
-                        visit_labels = []
-                        for idx, node in enumerate(seq):
-                            if node == 0:
-                                if idx == 0:
-                                    visit_labels.append("🏢 PABRIK")
-                                elif idx == len(seq) - 1:
-                                    visit_labels.append("🏁 FINISH\n(PABRIK)")
-                                else:
-                                    visit_labels.append("🔄 REFILL\n(PABRIK)")
-                            else:
-                                visit_labels.append(f"Toko R{node}\n(Urutan-{idx})")
-                        
-                        max_cols = 5
-                        coords = []
-                        current_row = 0
-                        
-                        for idx in range(len(visit_labels)):
-                            col = idx % max_cols
-                            if current_row % 2 == 1:
-                                col = (max_cols - 1) - col
-                            
-                            x = col * 3.5
-                            y = current_row * -2.5
-                            coords.append((x, y))
-                            
-                            if (idx + 1) % max_cols == 0:
-                                current_row += 1
-                        
-                        for i, label in enumerate(visit_labels):
-                            x_curr, y_curr = coords[i]
-                            
-                            if "PABRIK" in label:
-                                f_color = "#343A40"
-                                t_color = "white"
-                            elif "REFILL" in label:
-                                f_color = "#FFC107"
-                                t_color = "black"
-                            else:
-                                f_color = "#E1F5FE"
-                                t_color = "black"
-                                
-                            ax.text(x_curr, y_curr, f" {label} ", fontsize=9, fontweight='bold', color=t_color,
-                                    bbox=dict(boxstyle="round,pad=0.8", facecolor=f_color, edgecolor="black", lw=1.5),
-                                    ha="center", va="center", zorder=4)
-                        
-                        for i in range(len(visit_labels) - 1):
-                            x_start, y_start = coords[i]
-                            x_end, y_end = coords[i+1]
-                            
-                            if y_start != y_end:
-                                arrow = patches.FancyArrowPatch(
-                                    (x_start, y_start - 0.5), (x_end, y_end + 0.5),
-                                    arrowstyle="-|>", connectionstyle="angle,angleA=90,angleB=0,rad=10",
-                                    mutation_scale=15, linewidth=2.5, color="#1A237E"
-                                )
-                            else:
-                                arrow = patches.FancyArrowPatch(
-                                    (x_start, y_start), (x_end, y_end),
-                                    arrowstyle="-|>", connectionstyle="arc3,rad=0",
-                                    mutation_scale=15, linewidth=2.5, color="#1A237E",
-                                    shrinkA=35, shrinkB=35
-                                )
-                            ax.add_patch(arrow)
-                        
-                        all_x = [c[0] for c in coords]
-                        all_y = [c[1] for c in coords]
-                        ax.set_xlim(min(all_x) - 2, max(all_x) + 2)
-                        ax.set_ylim(min(all_y) - 1.5, max(all_y) + 1.5)
-                        ax.set_title(f"🚚 ALUR DIAGRAM DISTRIBUSI KENDARAAN {k}\n(Kapasitas: {Q[k]} Keranjang)", fontsize=13, fontweight='bold', pad=15)
-                    else:
-                        ax.text(5, -2, "KENDARAAN TIDAK BEROPERASI (NON-AKTIF)", fontsize=12, color='gray', ha='center', fontweight='bold')
-                        ax.set_title(f"🚚 KENDARAAN {k} (Non-Aktif)", fontsize=13, fontweight='bold', pad=15)
-                        ax.set_xlim(0, 10)
-                        ax.set_ylim(-5, 0)
-                        
-                    ax.axis('off')
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-                
-                buf = io.BytesIO()
-                plt.savefig(buf, format="png", bbox_inches='tight', dpi=300)
-                buf.seek(0)
-                
-                st.download_button(
-                    label="📥 Download Gambar Hasil Pemetaan Rute (PNG)",
-                    data=buf,
-                    file_name="bagan_rute_distribusi_grid.png",
-                    mime="image/png"
-                )
+                    for i in V:
+                        for j in V:
+                            if i != j:
+                                if x[i, j, k].X > 0.5 or x_refill[i, j, k].X > 0.5:
+                                    line = folium.PolyLine(
+                                        locations=[coords[i], coords[j]],
+                                        color=colors[k],
+                                        weight=4,
+                                        opacity=0.8,
+                                        dash_array='5, 10' if x_refill[i, j, k].X > 0.5 else None
+                                    ).add_to(m)
+                                    plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
+                    
+                    for i in V:
+                        if end[i, k].X > 0.5:
+                            line = folium.PolyLine(
+                                locations=[coords[i], coords[0]],
+                                color=colors[k],
+                                weight=4,
+                                opacity=0.8,
+                                dash_array='5, 10'
+                            ).add_to(m)
+                            plugins.PolyLineTextPath(line, "  ►  ", repeat=True, offset=6, attributes={'fill': colors[k]}).add_to(m)
+
+                st_folium(m, width=1100, height=550)
+
             else:
                 st.error("❌ Solusi Tidak Ditemukan (Infeasible).")
         except Exception as e:
