@@ -246,34 +246,29 @@ if "optimization_result" in st.session_state:
 
     for k in K:
         start_node = next((i for i in V if res["start"][(i, k)] > 0.5), None)
+        
         if start_node is not None:
             nodes_sequence = [0, start_node]
             curr = start_node
-            visited = set([curr])
             
-            for _ in range(len(V) + 5):
-                found_next = False
-                
-                for j in V:
-                    if j not in visited and res["x"].get((curr, j, k), 0) > 0.5:
-                        nodes_sequence.append(j)
-                        visited.add(j)
-                        curr = j
-                        found_next = True
-                        break
-                
-                if not found_next:
-                    for j in V:
-                        if j not in visited and res["x_refill"].get((curr, j, k), 0) > 0.5:
-                            nodes_sequence.extend([0, j])
-                            visited.add(j)
-                            curr = j
-                            found_next = True
-                            break
-                
-                if not found_next:
-                    if res["end"].get((curr, k), 0) > 0.5:
-                        nodes_sequence.append(0)
+            active_x = {i: j for (i, j, m), val in res["x"].items() if m == k and val > 0.5}
+            active_refill = {i: j for (i, j, m), val in res["x_refill"].items() if m == k and val > 0.5}
+            active_end = {i for (i, m), val in res["end"].items() if m == k and val > 0.5}
+            
+            for _ in range(len(V) * 2):
+                if curr in active_x:
+                    nxt = active_x[curr]
+                    nodes_sequence.append(nxt)
+                    curr = nxt
+                elif curr in active_refill:
+                    nxt = active_refill[curr]
+                    nodes_sequence.extend([0, nxt])
+                    curr = nxt
+                elif curr in active_end:
+                    nodes_sequence.append(0)
+                    break
+                else:
+                    nodes_sequence.append(0)
                     break
             
             route_str_list = []
@@ -397,7 +392,7 @@ if "optimization_result" in st.session_state:
     )
 
     st.divider()
-    st.markdown("### 🗺️ Peta Interaktif Geografis (Folium)")
+    st.markdown("### 🗺️ Peta Interaktif Geografis")
     
     m = folium.Map(location=[-7.0, 107.62], zoom_start=11, tiles="OpenStreetMap")
     
