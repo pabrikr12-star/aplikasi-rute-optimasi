@@ -135,7 +135,7 @@ for i in range(21):
     full_matrix.append(row)
 
 st.markdown("### 🗺️ Matriks Waktu Perjalanan Antar Lokasi (Menit)")
-st.caption("🔒 Matriks waktu antar Retailer telah ditetapkan secara permanen (Pabrik / L0 = 0 Menit).")
+st.caption("🔒 Matriks waktu antar Retailer telah ditetapkan secara permanen (Pabrik / R0 = 0 Menit).")
 df_matrix = pd.DataFrame(full_matrix, 
                          columns=[f"L{i}" for i in range(21)], 
                          index=[f"L{i}" for i in range(21)])
