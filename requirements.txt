@@ -3,5 +3,3 @@ pandas
 numpy
 matplotlib
 gurobipy==13.0.2
-folium
-streamlit-folium
